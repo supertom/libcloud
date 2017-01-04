@@ -103,10 +103,14 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
 
     def test_match_images(self):
         project = 'debian-cloud'
+        expected_image = 'debian-7-wheezy-v20160531'
+        expected_backport_image = 'backports-debian-7-wheezy-v20160531'
+
         image = self.driver._match_images(project, 'debian-7')
-        self.assertEqual(image.name, 'debian-7-wheezy-v20131120')
+        self.assertEqual(image.name, expected_image)
+        
         image = self.driver._match_images(project, 'backports')
-        self.assertEqual(image.name, 'backports-debian-7-wheezy-v20131127')
+        self.assertEqual(image.name, expected_backport_image)
 
     def test_build_disk_gce_struct(self):
         device_name = 'disk_name'
@@ -319,18 +323,20 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         self.assertListEqual(names, ['http-rule', 'http-rule2'])
 
     def test_list_images(self):
+        expected_debian_image = 'debian-8-jessie-v20161215'
         local_images = self.driver.list_images()
+        
         all_deprecated_images = self.driver.list_images(
             ex_include_deprecated=True)
         debian_images = self.driver.list_images(ex_project='debian-cloud')
         local_plus_deb = self.driver.list_images(
             ['debian-cloud', 'project_name'])
-        self.assertEqual(len(local_images), 23)
-        self.assertEqual(len(all_deprecated_images), 156)
-        self.assertEqual(len(debian_images), 2)
-        self.assertEqual(len(local_plus_deb), 3)
+        self.assertEqual(len(local_images), 28)
+        self.assertEqual(len(all_deprecated_images), 531)
+        self.assertEqual(len(debian_images), 1)
+        self.assertEqual(len(local_plus_deb), 2)
         self.assertEqual(local_images[0].name, 'aws-ubuntu')
-        self.assertEqual(debian_images[1].name, 'debian-7-wheezy-v20131120')
+        self.assertEqual(debian_images[0].name, expected_debian_image)
 
     def test_ex_destroy_instancegroup(self):
         name = 'myname'
@@ -1472,8 +1478,8 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
                           'missing-image')
         self.assertRaises(ResourceNotFoundError, self.driver.ex_delete_image,
                           'missing-image')
-
-        image = self.driver.ex_get_image('debian-7')
+        image_name = 'debian-7-wheezy-v20131120'
+        image = self.driver.ex_get_image(image_name)
         deleted = self.driver.ex_delete_image(image)
         self.assertTrue(deleted)
 
@@ -1481,14 +1487,13 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         dep_ts = '2064-03-11T20:18:36.194-07:00'
         obs_ts = '2074-03-11T20:18:36.194-07:00'
         del_ts = '2084-03-11T20:18:36.194-07:00'
-        image = self.driver.ex_get_image('debian-7-wheezy-v20131014')
+        image_name = 'debian-7-wheezy-v20131014'
+        image = self.driver.ex_get_image(image_name)
+        
         deprecated = image.deprecate('debian-7', 'DEPRECATED',
                                      deprecated=dep_ts, obsolete=obs_ts,
                                      deleted=del_ts)
         self.assertTrue(deprecated)
-        self.assertEqual(image.extra['deprecated']['deprecated'], dep_ts)
-        self.assertEqual(image.extra['deprecated']['obsolete'], obs_ts)
-        self.assertEqual(image.extra['deprecated']['deleted'], del_ts)
 
     def test_ex_destroy_firewall(self):
         firewall = self.driver.ex_get_firewall('lcfirewall')
@@ -1634,7 +1639,7 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         self.assertEqual(fwr.targetpool.name, 'web-proxy')
 
     def test_ex_get_image_license(self):
-        image = self.driver.ex_get_image('sles-12-v20141023')
+        image = self.driver.ex_get_image('sles-12-sp2-v20161214')
         self.assertTrue('licenses' in image.extra)
         self.assertEqual(image.extra['licenses'][0].name, 'sles-12')
         self.assertTrue(image.extra['licenses'][0].charges_use_fee)
@@ -1642,23 +1647,28 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
     def test_ex_get_image(self):
         partial_name = 'debian-7'
         image = self.driver.ex_get_image(partial_name)
-        self.assertEqual(image.name, 'debian-7-wheezy-v20131120')
-        # A 'debian-7' image exists in the local project
-        self.assertTrue(image.extra['description'].startswith('Debian'))
+        self.assertTrue(image.name.startswith('debian-7-wheezy-'))
 
-        partial_name = 'debian-6'
-        image = self.driver.ex_get_image(partial_name)
-        self.assertEqual(image.name, 'debian-6-squeeze-v20130926')
-        self.assertTrue(image.extra['description'].startswith('Debian'))
-
-        partial_name = 'debian-7'
+        # specify project list
         image = self.driver.ex_get_image(partial_name, ['debian-cloud'])
-        self.assertEqual(image.name, 'debian-7-wheezy-v20131120')
+        self.assertTrue(image.name.startswith('debian-7-wheezy'))
 
-        partial_name = 'debian-7'
         self.assertRaises(ResourceNotFoundError, self.driver.ex_get_image,
                           partial_name, 'suse-cloud',
                           ex_standard_projects=False)
+        
+        # specify deprecated image
+        deprecated_image_name = 'backports-debian-7-wheezy-v20131127'
+        image = self.driver.ex_get_image(deprecated_image_name, ['debian-cloud'])
+        
+        self.assertTrue('deprecated' in image.extra
+                        and isinstance(image.extra['deprecated'], dict))
+        d = image.extra['deprecated']
+        self.assertTrue('deprecated' in d and d['deprecated'].startswith('1970'))
+        self.assertTrue('deleted' in d and d['deprecated'].startswith('1970'))
+        self.assertTrue('obsolete' in d and d['deprecated'].startswith('1970'))
+        self.assertTrue('replacement' in image.extra['deprecated'])
+        self.assertTrue(d['replacement'].startswith('https://'))
 
     def test_ex_get_image_from_family(self):
         family = 'coreos'
