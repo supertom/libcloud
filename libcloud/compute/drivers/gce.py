@@ -199,8 +199,8 @@ class GCEConnection(GoogleBaseConnection):
                 # example v would be { "disks" : [], "otherkey" : "..." }
                 for k, v in resp['items'].items():
                     if list_name in v:
-                        merged_items.setdefault(k, {}).setdefault(
-                            list_name, [])
+                        merged_items.setdefault(k, {}).setdefault(list_name,
+                                                                  [])
                         # Combine the list with the existing list.
                         merged_items[k][list_name] += v[list_name]
         return {'items': merged_items}
@@ -399,7 +399,7 @@ class GCEBackend(UuidMixin):
     def __init__(self, instance_group, balancing_mode='UTILIZATION',
                  max_utilization=None, max_rate=None,
                  max_rate_per_instance=None, capacity_scaler=1,
-                 description=None):
+                 description=None, region=None, zone=None):
 
         if isinstance(instance_group, GCEInstanceGroup):
             self.instance_group = instance_group
@@ -415,6 +415,9 @@ class GCEBackend(UuidMixin):
         self.max_rate = max_rate
         self.max_rate_per_instance = max_rate_per_instance
         self.capacity_scaler = capacity_scaler
+        # self.region = region
+        # if region and not hasattr(region, 'name'):
+        #     self.region = self.ex_get_region(region)
 
         # 'id' and 'name' aren't actually used or provided by the GCE API.
         # We create them for convenience.
@@ -456,7 +459,8 @@ class GCEBackend(UuidMixin):
             d['maxRatePerInstance'] = self.max_rate_per_instance
         if self.capacity_scaler:
             d['capacityScaler'] = self.capacity_scaler
-
+        # if self.region:
+        #     d['region'] = self.region.extra['selfLink']
         return d
 
     def __repr__(self):
@@ -600,8 +604,8 @@ class GCEFirewall(UuidMixin):
 
 
 class GCEForwardingRule(UuidMixin):
-    def __init__(self, id, name, region, address, protocol, targetpool, driver,
-                 extra=None):
+    def __init__(self, id, name, region, address, protocol, targetpool,
+                 backendservice, driver, extra=None):
         self.id = str(id)
         self.name = name
         self.region = region
@@ -610,8 +614,11 @@ class GCEForwardingRule(UuidMixin):
         # TODO: 'targetpool' should more correctly be 'target' since a
         # forwarding rule's target can be something besides a targetpool
         self.targetpool = targetpool
+        self.backendservice = backendservice
         self.driver = driver
         self.extra = extra
+        if backendservice and targetpool:
+            raise ValueError("Both target and backendservice cannot be set.")
         UuidMixin.__init__(self)
 
     def destroy(self):
@@ -1127,7 +1134,7 @@ class GCEInstanceGroup(UuidMixin):
     """ GCEInstanceGroup represents the InstanceGroup resource. """
 
     def __init__(self, id, name, zone, driver, extra=None, network=None,
-                 subnetwork=None, named_ports=None):
+                 subnetwork=None, named_ports=None, region=None):
         """
         :param  name:  Required. The name of the instance group. The name
                        must be 1-63 characters long, and comply with RFC1035.
@@ -1164,6 +1171,9 @@ class GCEInstanceGroup(UuidMixin):
         self.named_ports = named_ports
         self.driver = driver
         self.extra = extra
+        self.region = region
+        if region and not hasattr(region, 'name'):
+            self.region = self.ex_get_region(region)
         UuidMixin.__init__(self)
 
     def __repr__(self):
@@ -1720,6 +1730,15 @@ class GCENodeDriver(NodeDriver):
     }
 
     BACKEND_SERVICE_PROTOCOLS = ['HTTP', 'HTTPS', 'HTTP2', 'TCP', 'SSL']
+    BACKEND_SERVICE_INTERNAL_PROTOCOLS = ['TCP', 'UDP']
+    BACKEND_SERVICE_INTERNAL_SA_SCHEMES = ['NONE', 'CLIENT_IP',
+                                           'CLIENT_IP_PROTO',
+                                           'CLIENT_IP_PORT_PROTO']
+    BACKEND_SERVICE_EXTERNAL_SA_SCHEMES = ['NONE', 'CLIENT_IP',
+                                           'GENERATED_COOKIE']
+    LOAD_BALANCING_EXTERNAL_PROTOCOLS = ['TCP', 'UDP', 'ESP', 'AH', 'SCTP',
+                                         'ICMP']
+    LOAD_BALANCING_INTERNAL_PROTOCOLS = ['TCP', 'UDP']
     GUEST_OS_FEATURES = ['VIRTIO_SCSI_MULTIQUEUE', 'WINDOWS',
                          'MULTI_IP_SUBNET']
 
@@ -2082,7 +2101,7 @@ class GCENodeDriver(NodeDriver):
                                   for a in response['items']]
         return list_addresses
 
-    def ex_list_backendservices(self):
+    def ex_list_backendservices(self, region=None):
         """
         Return a list of backend services.
 
@@ -2090,8 +2109,11 @@ class GCENodeDriver(NodeDriver):
         :rtype: ``list`` of :class:`GCEBackendService`
         """
         list_backendservices = []
-        response = self.connection.request('/global/backendServices',
-                                           method='GET').object
+        request = '/global/backendServices'
+        if region is not None:
+            region = self._set_region(region)
+            request = '/regions/%s/backendServices' % (region.name)
+        response = self.connection.request(request, method='GET').object
 
         list_backendservices = [self._to_backendservice(d)
                                 for d in response.get('items', [])]
@@ -2390,9 +2412,8 @@ class GCENodeDriver(NodeDriver):
                     for i in v.get('instances', []):
                         try:
                             list_nodes.append(
-                                self._to_node(i,
-                                              use_disk_cache=ex_use_disk_cache)
-                            )
+                                self._to_node(
+                                    i, use_disk_cache=ex_use_disk_cache))
                         # If a GCE node has been deleted between
                         #   - is was listed by `request('.../instances', 'GET')
                         #   - it is converted by `self._to_node(i)`
@@ -2406,8 +2427,7 @@ class GCENodeDriver(NodeDriver):
                 for i in response['items']:
                     try:
                         list_nodes.append(
-                            self._to_node(i, use_disk_cache=ex_use_disk_cache)
-                        )
+                            self._to_node(i, use_disk_cache=ex_use_disk_cache))
                     # If a GCE node has been deleted between
                     #   - is was listed by `request('.../instances', 'GET')
                     #   - it is converted by `self._to_node(i)`
@@ -2813,7 +2833,7 @@ class GCENodeDriver(NodeDriver):
     def ex_create_backend(self, instance_group, balancing_mode='UTILIZATION',
                           max_utilization=None, max_rate=None,
                           max_rate_per_instance=None, capacity_scaler=1,
-                          description=None):
+                          description=None, region=None):
         """
         Helper Object to create a backend.
 
@@ -2865,22 +2885,27 @@ class GCENodeDriver(NodeDriver):
                              resource.
         :type   description: ``str``
 
+        :param  region: The region the InstanceGroup belongs to.
+        :type   region: ``str`` or :class:`GCERegion`
+
         :return: A GCEBackend object.
         :rtype: :class: `GCEBackend`
         """
 
-        return GCEBackend(
-            instance_group=instance_group, balancing_mode=balancing_mode,
-            max_utilization=max_utilization, max_rate=max_rate,
-            max_rate_per_instance=max_rate_per_instance,
-            capacity_scaler=capacity_scaler, description=description)
+        return GCEBackend(instance_group=instance_group,
+                          balancing_mode=balancing_mode,
+                          max_utilization=max_utilization, max_rate=max_rate,
+                          max_rate_per_instance=max_rate_per_instance,
+                          capacity_scaler=capacity_scaler,
+                          description=description, region=region)
 
-    def ex_create_backendservice(self, name, healthchecks, backends=[],
-                                 protocol=None, description=None,
-                                 timeout_sec=None, enable_cdn=False, port=None,
-                                 port_name=None):
+    def ex_create_backendservice(
+            self, name, healthchecks, backends=[], protocol='TCP',
+            description=None, timeout_sec=None, enable_cdn=False, port=None,
+            port_name=None, load_balancing_scheme='EXTERNAL',
+            session_affinity='NONE', region=None):
         """
-        Create a global Backend Service.
+        Create a Global or Regional Backend Service.
 
         Scopes needed - one of the following:
         * https://www.googleapis.com/auth/cloud-platform
@@ -2928,46 +2953,82 @@ class GCENodeDriver(NodeDriver):
         :keyword  protocol: The protocol this Backend Service uses to
                             communicate with backends.
                             Possible values are HTTP, HTTPS, HTTP2, TCP
-                            and SSL.
+                            and SSL (default is HTTP). For internal load
+                            balancing, the possible values are TCP and UDP, and
+                            the default is TCP.
         :type     protocol: ``str``
+
+        :keyword  session_affinity: For internal load balancing, the possible
+                                    values are TCP and UDP, and the default
+                                    is TCP. When the load balancing scheme is
+                                    INTERNAL, can be NONE, CLIENT_IP,
+                                    CLIENT_IP_PROTO, or CLIENT_IP_PORT_PROTO.
+                                    When the protocol is UDP, this field is not
+                                    used.
+        :type     session_affinity: ``str`` or None
+
+        :keyword  load_balancing_scheme: Load Balancing: EXTERNAL or INTERNAL.
+        :type     load_balancing_scheme: ``str``
+
+        :param  region: The region the BackendService belongs to.
+        :type   region: ``str`` or :class:`GCERegion`
 
         :return:  A Backend Service object.
         :rtype:   :class:`GCEBackendService`
         """
-        backendservice_data = {'name': name,
-                               'healthChecks': [],
-                               'backends': [],
-                               'enableCDN': enable_cdn}
+        bes_data = {'name': name,
+                    'healthChecks': [],
+                    'backends': [],
+                    'loadBalancingScheme': load_balancing_scheme}
 
+        if load_balancing_scheme == 'INTERNAL':
+            print region
+            # regional backend service
+            region = self._set_region(region)
+            request = '/regions/%s/backendServices' % (region.name)
+            print 'region again %s' % region
+            bes_data['region'] = region.extra['selfLink']
+            self._valueerror_if_not_in_list(
+                'Protocol', protocol, self.BACKEND_SERVICE_INTERNAL_PROTOCOLS)
+            self._valueerror_if_not_in_list(
+                'Session Affinity', session_affinity,
+                self.BACKEND_SERVICE_INTERNAL_SA_SCHEMES)
+
+        else:
+            # global backend service
+            request = '/global/backendServices'
+            bes_data['enableCDN'] = enable_cdn
+            if port:
+                bes_data['port'] = port
+            if port_name:
+                bes_data['portName'] = port_name
+            self._valueerror_if_not_in_list('Protocol', protocol,
+                                            self.BACKEND_SERVICE_PROTOCOLS)
+            self._valueerror_if_not_in_list(
+                'Session Affinity', session_affinity,
+                self.BACKEND_SERVICE_EXTERNAL_SA_SCHEMES)
+
+        bes_data['protocol'] = protocol.upper()
+        bes_data['sessionAffinity'] = session_affinity.upper()
         for hc in healthchecks:
             if not hasattr(hc, 'extra'):
                 hc = self.ex_get_healthcheck(name=hc)
-            backendservice_data['healthChecks'].append(hc.extra['selfLink'])
+            bes_data['healthChecks'].append(hc.extra['selfLink'])
 
         for be in backends:
             if isinstance(be, GCEBackend):
-                backendservice_data['backends'].append(be.to_backend_dict())
+                bes_data['backends'].append(be.to_backend_dict())
             else:
-                backendservice_data['backends'].append(be)
-        if port:
-            backendservice_data['port'] = port
-        if port_name:
-            backendservice_data['portName'] = port_name
-        if timeout_sec:
-            backendservice_data['timeoutSec'] = timeout_sec
-        if protocol:
-            if protocol in self.BACKEND_SERVICE_PROTOCOLS:
-                backendservice_data['protocol'] = protocol
-            else:
-                raise ValueError('Protocol must be one of %s' %
-                                 ','.join(self.BACKEND_SERVICE_PROTOCOLS))
-        if description:
-            backendservice_data['description'] = description
+                bes_data['backends'].append(be)
 
-        request = '/global/backendServices'
-        self.connection.async_request(request, method='POST',
-                                      data=backendservice_data)
-        return self.ex_get_backendservice(name)
+        if timeout_sec:
+            bes_data['timeoutSec'] = timeout_sec
+
+        if description:
+            bes_data['description'] = description
+
+        self.connection.async_request(request, method='POST', data=bes_data)
+        return self.ex_get_backendservice(name, region=region)
 
     def ex_create_healthcheck(self, name, host=None, path=None, port=None,
                               interval=None, timeout=None,
@@ -3100,10 +3161,11 @@ class GCENodeDriver(NodeDriver):
                                       data=firewall_data)
         return self.ex_get_firewall(name)
 
-    def ex_create_forwarding_rule(self, name, target=None, region=None,
-                                  protocol='tcp', port_range=None,
-                                  address=None, description=None,
-                                  global_rule=False, targetpool=None):
+    def ex_create_forwarding_rule(
+            self, name, target=None, region=None, protocol='tcp',
+            port_range=None, address=None, description=None, global_rule=False,
+            targetpool=None, load_balancing_scheme='EXTERNAL',
+            backend_service=None, ports=None, network=None, subnetwork=None):
         """
         Create a forwarding rule.
 
@@ -3117,9 +3179,11 @@ class GCENodeDriver(NodeDriver):
                           a string instead of the object, it will be the name
                           of a TargetHttpProxy for global rules or a
                           TargetPool for regional rules.  A TargetInstance
-                          must be passed by object. (required)
+                          must be passed by object. This field is not used for
+                          internal load balancing.
         :type     target: ``str`` or :class:`GCETargetHttpProxy` or
                           :class:`GCETargetInstance` or :class:`GCETargetPool`
+                          or None
 
         :keyword  region: Region to create the forwarding rule in.  Defaults to
                           self.region.  Ignored if global_rule is True.
@@ -3131,10 +3195,22 @@ class GCENodeDriver(NodeDriver):
         :keyword  port_range: Single port number or range separated by a dash.
                               Examples: '80', '5000-5999'.  Required for global
                               forwarding rules, optional for regional rules.
+                              This field is not used for internal load
+                              balancing.
         :type     port_range: ``str``
 
+        :keyword  ports: When the load balancing scheme is INTERNAL, a single
+                         port or a comma separated list of ports can be
+                         configured. Only packets addressed to these ports will
+                         be forwarded to the backends configured with this
+                         forwarding rule. If the port list is not provided then
+                         all ports are allowed to pass through. You may specify
+                         a maximum of up to 5 ports.
+        :type     ports: ``list``
+
         :keyword  address: Optional static address for forwarding rule. Must be
-                           in same region.
+                           in same region. Must be private for internal load
+                           balancing.
         :type     address: ``str`` or :class:`GCEAddress`
 
         :keyword  description: The description of the forwarding rule.
@@ -3145,45 +3221,137 @@ class GCENodeDriver(NodeDriver):
                               Use target instead.
         :type     targetpool: ``str`` or :class:`GCETargetPool`
 
+        :keyword  load_balancing_scheme: INTERNAL or EXTERNAL. Default is
+                                         EXTERNAL.
+        :type     load_balancing_scheme: ``str``
+
+        :keyword  backend_service: For internal load balancing, this field
+                                   identifies the BackendService resource to
+                                   receive the matched traffic.Backend Service.
+                                   Only used with load_balancing_scheme set
+                                   to INTERNAL.
+        :type     backend_service: ``str``
+
+        :param  network: For internal load balancing, this field identifies the
+                         network that the load balanced IP should belong to for
+                         this Forwarding Rule. If this field is not specified,
+                         the default network will be used. This field is not
+                         used for external load balancing.
+        :type   network: :class:`GCENetwork`
+
+        :param  subnetwork: For internal load balancing, this field identifies
+                            the subnetwork that the load balanced IP should
+                            belong to for this Forwarding Rule. This field is
+                            not used for external load balancing.
+        :type   subnetwork: :class:`GCESubnetwork`
+
         :return:  Forwarding Rule object
         :rtype:   :class:`GCEForwardingRule`
         """
-        forwarding_rule_data = {'name': name}
+        fr_data = {'name': name}
+        request = ''
+        if not target:
+            target = targetpool  # Backwards compatibility
+        protocol = protocol.upper()
+
         if global_rule:
-            if not hasattr(target, 'name'):
-                target = self.ex_get_targethttpproxy(target)
+            fr_data['target'] = self._get_selflink_or_name(target, True,
+                                                           'targethttpproxy')
+            request = '/global/forwardingRules'
         else:
-            region = region or self.region
+            self._validate_load_balancing_scheme_params(
+                load_balancing_scheme, target, protocol, backend_service,
+                port_range, ports, network, subnetwork, region)
+
             if not hasattr(region, 'name'):
                 region = self.ex_get_region(region)
-            forwarding_rule_data['region'] = region.extra['selfLink']
+                fr_data['region'] = region.extra['selfLink']
 
-            if not target:
-                target = targetpool  # Backwards compatibility
-            if not hasattr(target, 'name'):
-                target = self.ex_get_targetpool(target, region)
+            request = '/regions/%s/forwardingRules' % (region.name)
 
-        forwarding_rule_data['target'] = target.extra['selfLink']
-        forwarding_rule_data['IPProtocol'] = protocol.upper()
+            if load_balancing_scheme == 'INTERNAL':
+                fr_data['backendService'] = self._get_selflink_or_name(
+                    backend_service, True, 'backendservice')
+
+                fr_data['network'] = self._get_selflink_or_name(network, True,
+                                                                'network')
+                fr_data['subnetwork'] = self._get_selflink_or_name(
+                    subnetwork, True, 'subnetwork')
+
+                fr_data['ports'] = ports
+            else:
+                fr_data['target'] = self._get_selflink_or_name(target, True,
+                                                               'targetpool')
+                if port_range:
+                    fr_data['portRange'] = port_range
+
+        fr_data['IPProtocol'] = protocol
         if address:
             if not hasattr(address, 'name'):
                 address = self.ex_get_address(address, 'global'
                                               if global_rule else region)
-            forwarding_rule_data['IPAddress'] = address.address
-        if port_range:
-            forwarding_rule_data['portRange'] = port_range
+            fr_data['IPAddress'] = address.address
         if description:
-            forwarding_rule_data['description'] = description
+            fr_data['description'] = description
+        if load_balancing_scheme:
+            fr_data['loadBalancingScheme'] = load_balancing_scheme
 
-        if global_rule:
-            request = '/global/forwardingRules'
+        self.connection.async_request(request, method='POST', data=fr_data)
+
+        return self.ex_get_forwarding_rule(name, region=region,
+                                           global_rule=global_rule)
+
+    def _validate_load_balancing_scheme_params(
+            self, load_balancing_scheme, target, protocol, backend_service,
+            port_range, ports, network, subnetwork, region):
+        """
+        Validate Forwarding Rule arguments based on Load Balancing Scheme.
+
+        Does not apply to Global Forwarding Rules.
+
+        Raises ValueError on error.
+        """
+        valid_lbs = ['EXTERNAL', 'INTERNAL']
+        if load_balancing_scheme not in valid_lbs:
+            raise ValueError('Load Balancing Scheme must be one of  %s' %
+                             (valid_lbs))
+        if load_balancing_scheme == 'INTERNAL':
+            if protocol not in self.LOAD_BALANCING_INTERNAL_PROTOCOLS:
+                raise ValueError(
+                    ('For internal load balancing, protocol must be '
+                     'one of:' % (self.LOAD_BALANCING_INTERNAL_PROTOCOLS)))
+            if target is not None:
+                raise ValueError(
+                    ('For internal load balancing target must be None'))
+            if port_range is not None:
+                raise ValueError(
+                    ('For internal load balancing port_range must be None'))
+            if region is None:
+                raise ValueError(
+                    ('For internal load balancing region must not be None'))
         else:
-            request = '/regions/%s/forwardingRules' % (region.name)
+            if protocol not in self.LOAD_BALANCING_EXTERNAL_PROTOCOLS:
+                raise ValueError(
+                    ('For external load balancing, protocol must be '
+                     'one of:' % (self.LOAD_BALANCING_EXTERNAL_PROTOCOLS)))
+            if backend_service is not None:
+                raise ValueError(
+                    ('For external load balancing backend_service must '
+                     'be None'))
+            if ports is not None:
+                raise ValueError(
+                    ('For external load balancing ports must be None'))
+            if network is not None:
+                raise ValueError(
+                    ('For external load balancing network must be None'))
+            if subnetwork is not None:
+                raise ValueError(
+                    ('For external load balancing subnetwork must be None'))
+            if region is not None:
+                raise ValueError(
+                    ('For external load balancing region must be None'))
 
-        self.connection.async_request(request, method='POST',
-                                      data=forwarding_rule_data)
-
-        return self.ex_get_forwarding_rule(name, global_rule=global_rule)
+        return True
 
     def ex_create_image(self, name, volume, description=None, family=None,
                         guest_os_features=None, use_existing=True,
@@ -6075,6 +6243,9 @@ class GCENodeDriver(NodeDriver):
         :rtype:   ``bool``
         """
         request = '/global/backendServices/%s' % backendservice.name
+        if hasattr(backendservice, 'region'):
+            request = '/regions/%s/backendServices/%s' % (
+                backendservice.region.name, backendservice.name)
 
         self.connection.async_request(request, method='DELETE')
         return True
@@ -6648,17 +6819,24 @@ class GCENodeDriver(NodeDriver):
         response = self.connection.request(request, method='GET').object
         return self._to_address(response)
 
-    def ex_get_backendservice(self, name):
+    def ex_get_backendservice(self, name, region=None):
         """
         Return a Backend Service object based on name
 
         :param  name: The name of the backend service
         :type   name: ``str``
 
+        :keyword  region: For a RegionBackendService, specify the Region.
+        :type     region: ``str`` :class:`GCERegion` or ``None``
+
         :return:  A BackendService object for the backend service
         :rtype:   :class:`GCEBackendService`
         """
-        request = '/global/backendServices/%s' % name
+        if not region:
+            request = '/global/backendServices/%s' % name
+        else:
+            region = self._set_region(region)
+            request = '/regions/%s/backendServices/%s' % (region.name, name)
         response = self.connection.request(request, method='GET').object
         return self._to_backendservice(response)
 
@@ -6673,6 +6851,20 @@ class GCENodeDriver(NodeDriver):
         :rtype:   :class:`GCEHealthCheck`
         """
         request = '/global/httpHealthChecks/%s' % (name)
+        response = self.connection.request(request, method='GET').object
+        return self._to_healthcheck(response)
+
+    def ex_get_tcphealthcheck(self, name):
+        """
+        Return a HealthCheck object based on the healthcheck name.
+
+        :param  name: The name of the healthcheck
+        :type   name: ``str``
+
+        :return:  A GCEHealthCheck object
+        :rtype:   :class:`GCEHealthCheck`
+        """
+        request = '/global/healthChecks/%s' % (name)
         response = self.connection.request(request, method='GET').object
         return self._to_healthcheck(response)
 
@@ -7359,9 +7551,8 @@ class GCENodeDriver(NodeDriver):
 
         volume = self._ex_volume_dict[volume_name].get(zone, None)
         if not volume:
-            raise ResourceNotFoundError(
-                'Volume \'%s\' not found for zone %s.' % (volume_name,
-                                                          zone), None, None)
+            raise ResourceNotFoundError('Volume \'%s\' not found for zone %s.'
+                                        % (volume_name, zone), None, None)
         return self._to_storage_volume(volume)
 
     def _ex_populate_volume_dict(self):
@@ -7372,13 +7563,12 @@ class GCENodeDriver(NodeDriver):
         return:  ``None``
         """
         # fill the volume dict by making an aggegatedList call to disks.
-        aggregated_items = self.connection.request_aggregated_items(
-            "disks")
+        aggregated_items = self.connection.request_aggregated_items("disks")
 
         # _ex_volume_dict is in the format of:
         # { 'disk_name' : { 'zone1': disk, 'zone2': disk, ... }}
-        self._ex_volume_dict = self._build_volume_dict(
-            aggregated_items['items'])
+        self._ex_volume_dict = self._build_volume_dict(aggregated_items[
+            'items'])
 
         return None
 
@@ -7530,8 +7720,8 @@ class GCENodeDriver(NodeDriver):
                 if image.name == partial_name:
                     return image
                 if image.name.startswith(partial_name):
-                    ts = timestamp_to_datetime(
-                        image.extra['creationTimestamp'])
+                    ts = timestamp_to_datetime(image.extra[
+                        'creationTimestamp'])
                     if not partial_match or partial_match[0] < ts:
                         partial_match = [ts, image]
 
@@ -8013,7 +8203,8 @@ class GCENodeDriver(NodeDriver):
         return GCEBackendService(
             id=backendservice['id'], name=backendservice['name'],
             backends=backends, healthchecks=healthchecks,
-            port=backendservice['port'], port_name=backendservice['portName'],
+            port=backendservice.get('port', None),
+            port_name=backendservice.get('portName', None),
             protocol=backendservice['protocol'],
             timeout=backendservice['timeoutSec'], driver=self, extra=extra)
 
@@ -8089,13 +8280,22 @@ class GCENodeDriver(NodeDriver):
         region = forwarding_rule.get('region')
         if region:
             region = self.ex_get_region(region)
-        target = self._get_object_by_kind(forwarding_rule['target'])
 
-        return GCEForwardingRule(id=forwarding_rule['id'],
-                                 name=forwarding_rule['name'], region=region,
-                                 address=forwarding_rule.get('IPAddress'),
-                                 protocol=forwarding_rule.get('IPProtocol'),
-                                 targetpool=target, driver=self, extra=extra)
+        target = forwarding_rule.get('target')
+        if target:
+            target = self._get_object_by_kind(target)
+
+        backendservice = forwarding_rule.get('backendService')
+        if backendservice:
+            bes_name = self._get_components_from_path(backendservice)['name']
+            backendservice = self.ex_get_backendservice(bes_name,
+                                                        region=region)
+
+        return GCEForwardingRule(
+            id=forwarding_rule['id'], name=forwarding_rule['name'],
+            region=region, address=forwarding_rule.get('IPAddress'),
+            protocol=forwarding_rule.get('IPProtocol'), targetpool=target,
+            backendservice=backendservice, driver=self, extra=extra)
 
     def _to_sslcertificate(self, sslcertificate):
         """
@@ -8633,11 +8833,13 @@ class GCENodeDriver(NodeDriver):
             parts = self._get_components_from_path(subnetwork)
             subnetwork = self.ex_get_subnetwork(parts['name'], parts['region'])
 
+        region = instancegroup.get('region', None)
+
         return GCEInstanceGroup(
             id=instancegroup['id'], name=instancegroup['name'], zone=zone,
             network=network, subnetwork=subnetwork,
             named_ports=instancegroup.get('namedPorts', []), driver=self,
-            extra=extra)
+            extra=extra, region=region)
 
     def _to_instancegroupmanager(self, manager):
         """
@@ -8910,6 +9112,14 @@ class GCENodeDriver(NodeDriver):
                 self.ex_get_license(project=lic_proj, name=lic_name))
         return return_list
 
+    def _valueerror_if_not_in_list(self, value_name, value, value_list):
+        """
+        Check for value in list.  If not present, raise ValueError.
+        """
+        if value not in value_list:
+            raise ValueError('%s must be one of: %s' %
+                             (value_name, ','.join(value_list)))
+
     KIND_METHOD_MAP = {
         'compute#address': _to_address,
         'compute#backendService': _to_backendservice,
@@ -8917,6 +9127,7 @@ class GCENodeDriver(NodeDriver):
         'compute#firewall': _to_firewall,
         'compute#forwardingRule': _to_forwarding_rule,
         'compute#httpHealthCheck': _to_healthcheck,
+        'compute#healthCheck': _to_healthcheck,
         'compute#image': _to_node_image,
         'compute#instance': _to_node,
         'compute#machineType': _to_node_size,
