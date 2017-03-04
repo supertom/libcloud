@@ -24,8 +24,8 @@ from libcloud.utils.py3 import httplib
 from libcloud.compute.drivers.gce import (
     GCENodeDriver, API_VERSION, timestamp_to_datetime, GCEAddress, GCEBackend,
     GCEBackendService, GCEFirewall, GCEForwardingRule, GCEHealthCheck,
-    GCENetwork, GCENodeImage, GCERoute, GCERegion, GCETargetHttpProxy,
-    GCEUrlMap, GCEZone, GCESubnetwork)
+    GCEHttpHealthCheck, GCEHttpsHealthCheck, GCENetwork, GCENodeImage,
+    GCERoute, GCERegion, GCETargetHttpProxy, GCEUrlMap, GCEZone, GCESubnetwork)
 from libcloud.common.google import (GoogleBaseAuthConnection,
                                     ResourceNotFoundError, ResourceExistsError,
                                     GoogleBaseError)
@@ -237,16 +237,17 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         d = self.driver
         # Test the default case for all list methods
         # (except list_volume_snapshots, which requires an arg)
-        for list_fn in (d.ex_list_addresses, d.ex_list_backendservices,
-                        d.ex_list_disktypes, d.ex_list_firewalls,
-                        d.ex_list_forwarding_rules, d.ex_list_healthchecks,
-                        d.ex_list_networks, d.ex_list_subnetworks,
-                        d.ex_list_project_images, d.ex_list_regions,
-                        d.ex_list_routes, d.ex_list_snapshots,
-                        d.ex_list_targethttpproxies, d.ex_list_targetinstances,
-                        d.ex_list_targetpools, d.ex_list_urlmaps,
-                        d.ex_list_zones, d.list_images, d.list_locations,
-                        d.list_nodes, d.list_sizes, d.list_volumes):
+        for list_fn in (
+                d.ex_list_addresses, d.ex_list_backendservices,
+                d.ex_list_disktypes, d.ex_list_firewalls,
+                d.ex_list_forwarding_rules, d.ex_list_healthchecks,
+                d.ex_list_httphealthchecks, d.ex_list_httpshealthchecks,
+                d.ex_list_networks, d.ex_list_subnetworks,
+                d.ex_list_project_images, d.ex_list_regions, d.ex_list_routes,
+                d.ex_list_snapshots, d.ex_list_targethttpproxies,
+                d.ex_list_targetinstances, d.ex_list_targetpools,
+                d.ex_list_urlmaps, d.ex_list_zones, d.list_images,
+                d.list_locations, d.list_nodes, d.list_sizes, d.list_volumes):
             full_list = [item.name for item in list_fn()]
             li = d.ex_list(list_fn)
             iter_list = [item.name for sublist in li for item in sublist]
@@ -289,6 +290,18 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
 
     def test_ex_list_healthchecks(self):
         healthchecks = self.driver.ex_list_healthchecks()
+        self.assertEqual(len(healthchecks), 3)
+        self.assertEqual(healthchecks[0].name, 'basic-check')
+
+    def test_ex_list_httphealthchecks(self):
+        """ Test list of HTTP HealthChecks."""
+        healthchecks = self.driver.ex_list_httphealthchecks()
+        self.assertEqual(len(healthchecks), 3)
+        self.assertEqual(healthchecks[0].name, 'basic-check')
+
+    def test_ex_list_httpshealthchecks(self):
+        """ Test list of HTTPS HealthChecks."""
+        healthchecks = self.driver.ex_list_httpshealthchecks()
         self.assertEqual(len(healthchecks), 3)
         self.assertEqual(healthchecks[0].name, 'basic-check')
 
@@ -735,6 +748,47 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         self.assertEqual(hc.extra['host'], 'lchost')
         self.assertEqual(hc.extra['description'], 'test healthcheck')
 
+    # TODO(supertom): change name, file, etc.
+    def test_ex_create_httphealthcheck(self):
+        """ Test create HTTP HealthCheck."""
+        healthcheck_name = 'lchealthcheck'
+        kwargs = {'host': 'lchost',
+                  'path': '/lc',
+                  'port': 8000,
+                  'interval': 10,
+                  'timeout': 10,
+                  'unhealthy_threshold': 4,
+                  'healthy_threshold': 3,
+                  'description': 'test healthcheck'}
+        hc = self.driver.ex_create_httphealthcheck(healthcheck_name, **kwargs)
+        self.assertTrue(isinstance(hc, GCEHttpHealthCheck))
+        self.assertEqual(hc.name, healthcheck_name)
+        self.assertEqual(hc.path, '/lc')
+        self.assertEqual(hc.port, 8000)
+        self.assertEqual(hc.interval, 10)
+        self.assertEqual(hc.extra['host'], 'lchost')
+        self.assertEqual(hc.extra['description'], 'test healthcheck')
+
+    def test_ex_create_httpshealthcheck(self):
+        """ Test create HTTPS HealthCheck."""
+        healthcheck_name = 'lchttpshealthcheck'
+        kwargs = {'host': 'lchost',
+                  'path': '/lc',
+                  'port': 8000,
+                  'interval': 10,
+                  'timeout': 10,
+                  'unhealthy_threshold': 4,
+                  'healthy_threshold': 3,
+                  'description': 'test healthcheck'}
+        hc = self.driver.ex_create_httpshealthcheck(healthcheck_name, **kwargs)
+        self.assertTrue(isinstance(hc, GCEHttpsHealthCheck))
+        self.assertEqual(hc.name, healthcheck_name)
+        self.assertEqual(hc.path, '/lc')
+        self.assertEqual(hc.port, 8000)
+        self.assertEqual(hc.interval, 10)
+        self.assertEqual(hc.extra['host'], 'lchost')
+        self.assertEqual(hc.extra['description'], 'test healthcheck')
+
     def test_ex_create_image(self):
         volume = self.driver.ex_get_volume('lcdisk')
         description = 'CoreOS beta 522.3.0'
@@ -743,7 +797,8 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         guest_os_features = ['VIRTIO_SCSI_MULTIQUEUE', 'WINDOWS',
                              'MULTI_IP_SUBNET']
         expected_features = [
-            {'type': 'VIRTIO_SCSI_MULTIQUEUE'}, {'type': 'WINDOWS'},
+            {'type': 'VIRTIO_SCSI_MULTIQUEUE'},
+            {'type': 'WINDOWS'},
             {'type': 'MULTI_IP_SUBNET'},
         ]
         mock_request = mock.Mock()
@@ -775,7 +830,8 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         guest_os_features = ['VIRTIO_SCSI_MULTIQUEUE', 'WINDOWS',
                              'MULTI_IP_SUBNET']
         expected_features = [
-            {'type': 'VIRTIO_SCSI_MULTIQUEUE'}, {'type': 'WINDOWS'},
+            {'type': 'VIRTIO_SCSI_MULTIQUEUE'},
+            {'type': 'WINDOWS'},
             {'type': 'MULTI_IP_SUBNET'},
         ]
         image = self.driver.ex_copy_image(name, url, description=description,
@@ -1335,6 +1391,23 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
         healthcheck2 = self.driver.ex_update_healthcheck(healthcheck)
         self.assertTrue(isinstance(healthcheck2, GCEHealthCheck))
 
+    # TODO(supertom): change name, file, etc.
+    def test_ex_update_httphealthcheck(self):
+        """ Test HTTP update healthcheck."""
+        healthcheck_name = 'lchealthcheck'
+        healthcheck = self.driver.ex_get_httphealthcheck(healthcheck_name)
+        healthcheck.port = 9000
+        healthcheck2 = self.driver.ex_update_httphealthcheck(healthcheck)
+        self.assertTrue(isinstance(healthcheck2, GCEHttpHealthCheck))
+
+    def test_ex_update_httpshealthcheck(self):
+        """ Test HTTPS update healthcheck."""
+        healthcheck_name = 'lchttpshealthcheck'
+        healthcheck = self.driver.ex_get_httpshealthcheck(healthcheck_name)
+        healthcheck.port = 9000
+        healthcheck2 = self.driver.ex_update_httpshealthcheck(healthcheck)
+        self.assertTrue(isinstance(healthcheck2, GCEHttpsHealthCheck))
+
     def test_ex_update_firewall(self):
         firewall_name = 'lcfirewall'
         firewall = self.driver.ex_get_firewall(firewall_name)
@@ -1456,6 +1529,19 @@ class GCENodeDriverTest(GoogleTestCase, TestCaseMixin):
 
     def test_ex_destroy_healthcheck(self):
         hc = self.driver.ex_get_healthcheck('lchealthcheck')
+        destroyed = hc.destroy()
+        self.assertTrue(destroyed)
+
+    # TODO(supertom): change name, file, etc.
+    def test_ex_destroy_httphealthcheck(self):
+        """ Test Destroy HTTP HealthCheck."""
+        hc = self.driver.ex_get_httphealthcheck('lchealthcheck')
+        destroyed = hc.destroy()
+        self.assertTrue(destroyed)
+
+    def test_ex_destroy_httpshealthcheck(self):
+        """ Test Destroy HTTPS HealthCheck."""
+        hc = self.driver.ex_get_httpshealthcheck('lchttpshealthcheck')
         destroyed = hc.destroy()
         self.assertTrue(destroyed)
 
@@ -2142,6 +2228,7 @@ class GCEMockHttp(MockHttpTestCase):
             body = self.fixtures.load('global_forwardingRules_http_rule.json')
         return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
 
+    # TODO(supertom): will need another set for just healthCheck
     def _global_httpHealthChecks(self, method, url, body, headers):
         if method == 'POST':
             body = self.fixtures.load('global_httpHealthChecks_post.json')
@@ -2175,6 +2262,42 @@ class GCEMockHttp(MockHttpTestCase):
         else:
             body = self.fixtures.load(
                 'global_httpHealthChecks_lchealthcheck.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_httpsHealthChecks(self, method, url, body, headers):
+        if method == 'POST':
+            body = self.fixtures.load('global_httpsHealthChecks_post.json')
+        else:
+            body = self.fixtures.load('global_httpsHealthChecks.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_httpsHealthChecks_default_health_check(self, method, url, body,
+                                                       headers):
+        body = self.fixtures.load('global_httpsHealthChecks_basic-check.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_httpsHealthChecks_basic_check(self, method, url, body,
+                                              headers):
+        body = self.fixtures.load('global_httpsHealthChecks_basic-check.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_httpsHealthChecks_libcloud_lb_demo_healthcheck(
+            self, method, url, body, headers):
+        body = self.fixtures.load(
+            'global_httpsHealthChecks_libcloud-lb-demo-healthcheck.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_httpsHealthChecks_lchttpshealthcheck(self, method, url, body,
+                                                     headers):
+        if method == 'DELETE':
+            body = self.fixtures.load(
+                'global_httpsHealthChecks_lchttpshealthcheck_delete.json')
+        elif method == 'PUT':
+            body = self.fixtures.load(
+                'global_httpsHealthChecks_lchttpshealthcheck_put.json')
+        else:
+            body = self.fixtures.load(
+                'global_httpsHealthChecks_lchttpshealthcheck.json')
         return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
 
     def _global_firewalls(self, method, url, body, headers):
@@ -2323,10 +2446,17 @@ class GCEMockHttp(MockHttpTestCase):
             'operations_operation_global_forwardingRules_post.json')
         return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
 
+    # TODO(supertom): another set for healthChecks
     def _global_operations_operation_global_httpHealthChecks_lchealthcheck_delete(
             self, method, url, body, headers):
         body = self.fixtures.load(
             'operations_operation_global_httpHealthChecks_lchealthcheck_delete.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_operations_operation_global_httpsHealthChecks_lchttpshealthcheck_delete(
+            self, method, url, body, headers):
+        body = self.fixtures.load(
+            'operations_operation_global_httpsHealthChecks_lchttpshealthcheck_delete.json')
         return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
 
     def _global_operations_operation_global_images_debian7_delete(
@@ -2345,6 +2475,18 @@ class GCEMockHttp(MockHttpTestCase):
             self, method, url, body, headers):
         body = self.fixtures.load(
             'operations_operation_global_httpHealthChecks_post.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_operations_operation_global_httpsHealthChecks_lchttpshealthcheck_put(
+            self, method, url, body, headers):
+        body = self.fixtures.load(
+            'operations_operation_global_httpsHealthChecks_lchttpshealthcheck_delete.json')
+        return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
+
+    def _global_operations_operation_global_httpsHealthChecks_post(
+            self, method, url, body, headers):
+        body = self.fixtures.load(
+            'operations_operation_global_httpsHealthChecks_post.json')
         return (httplib.OK, body, self.json_hdr, httplib.responses[httplib.OK])
 
     def _global_operations_operation_global_firewalls_lcfirewall_delete(

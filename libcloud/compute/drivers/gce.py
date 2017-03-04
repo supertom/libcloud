@@ -199,8 +199,8 @@ class GCEConnection(GoogleBaseConnection):
                 # example v would be { "disks" : [], "otherkey" : "..." }
                 for k, v in resp['items'].items():
                     if list_name in v:
-                        merged_items.setdefault(k, {}).setdefault(
-                            list_name, [])
+                        merged_items.setdefault(k, {}).setdefault(list_name,
+                                                                  [])
                         # Combine the list with the existing list.
                         merged_items[k][list_name] += v[list_name]
         return {'items': merged_items}
@@ -564,6 +564,214 @@ class GCEHealthCheck(UuidMixin):
     def __repr__(self):
         return '<GCEHealthCheck id="%s" name="%s" path="%s" port="%s">' % (
             self.id, self.name, self.path, self.port)
+
+
+class GCEHttpsHealthCheck(UuidMixin):
+    """ GCEHttpsHealthCheck represents the HttpsHealthCheck resource. """
+
+    def __init__(self, id, name, kind=None, description=None, timeout=None,
+                 interval=None, port=None, healthy_threshold=None, host=None,
+                 path=None, unhealthy_threshold=None, driver=None, extra=None):
+        """
+        :param  name:  Name of the resource. Provided by the client when the
+                       resource is created. The name must be 1-63 characters
+                       long, and comply with RFC1035. Specifically, the name
+                       must be 1-63 characters long and match the regular
+                       expression [a-z]([-a-z0-9]*[a-z0-9])? which means the
+                       first character must be a lowercase letter, and all
+                       following characters must be a dash, lowercase letter,
+                       or digit, except the last character, which cannot be a
+                       dash.
+        :type   name: ``str``
+
+        :param  kind:  Type of the resource.
+        :type   kind: ``str``
+
+        :param  description:  An optional description of this resource.
+                              Provide this property when you create the
+                              resource.
+        :type   description: ``str``
+
+        :param  timeout:  How long (in seconds) to wait before claiming
+                              failure. The default value is 5 seconds. It is
+                              invalid for timeoutSec to have a greater value
+                              than checkIntervalSec.
+        :type   timeout: ``integer``
+
+        :param  interval:  How often (in seconds) to send a health
+                                     check. The default value is 5 seconds.
+        :type   interval: ``integer``
+
+        :param  port:  The TCP port number for the HTTPS health check
+                       request. The default value is 443.
+        :type   port: ``integer``
+
+        :param  healthy_threshold:  A so-far unhealthy instance will be
+                                    marked healthy after this many
+                                    consecutive successes. The default value
+                                    is 2.
+        :type   healthy_threshold: ``integer``
+
+        :param  host:  The value of the host header in the HTTPS health check
+                       request. If left empty (default value), the public IP
+                       on behalf of which this health check is performed will
+                       be used.
+        :type   host: ``str``
+
+        :param  path:  The request path of the HTTPS health check
+                               request. The default value is "/".
+        :type   path: ``str``
+
+        :param  unhealthy_threshold:  A so-far healthy instance will be
+                                      marked unhealthy after this many
+                                      consecutive failures. The default value
+                                      is 2.
+        :type   unhealthy_threshold: ``integer``
+
+        :keyword  driver:  An initialized :class: `GCENodeDriver`
+        :type   driver: :class:`:class: `GCENodeDriver``
+
+        :keyword  extra:  A dictionary of extra information.
+        :type   extra: ``:class: ``dict````
+
+        """
+        self.name = name
+        self.kind = kind
+        self.description = description
+        self.timeout = timeout
+        self.interval = interval
+        self.port = port
+        self.healthy_threshold = healthy_threshold
+        self.host = host
+        self.path = path
+        self.unhealthy_threshold = unhealthy_threshold
+        self.driver = driver
+        self.extra = extra
+        UuidMixin.__init__(self)
+
+    def __repr__(self):
+        return '<GCEHttpsHealthCheck name="%s" path="%s" port="%s">' % (
+            self.name, self.path, self.port)
+
+    def update(self):
+        """
+        Commit updated HTTPS healthcheck values.
+
+        :return:  Updated httpsHealthcheck object
+        :rtype:   :class:`GCEHttpsHealthcheck`
+        """
+        return self.driver.ex_update_httpshealthcheck(httpshealthcheck=self)
+
+    def destroy(self):
+        """
+        Destroy this HttpsHealthCheck.
+
+        :return:  Return True if successful.
+        :rtype: ``bool``
+        """
+        return self.driver.ex_destroy_httpshealthcheck(httpshealthcheck=self)
+
+
+class GCEHttpHealthCheck(UuidMixin):
+    """ GCEHttpHealthCheck represents the HttpHealthCheck resource. """
+
+    def __init__(self, id, name, description=None, timeout=None, interval=None,
+                 port=None, healthy_threshold=None, host=None, path=None,
+                 unhealthy_threshold=None, driver=None, extra=None):
+        """
+        :param  name:  Name of the resource. Provided by the client when the
+                       resource is created. The name must be 1-63 characters
+                       long, and comply with RFC1035. Specifically, the name
+                       must be 1-63 characters long and match the regular
+                       expression [a-z]([-a-z0-9]*[a-z0-9])? which means the
+                       first character must be a lowercase letter, and all
+                       following characters must be a dash, lowercase letter,
+                       or digit, except the last character, which cannot be a
+                       dash.
+        :type   name: ``str``
+
+        :param  description:  An optional description of this resource.
+                              Provide this property when you create the
+                              resource.
+        :type   description: ``str``
+
+        :param  timeout:  How long (in seconds) to wait before claiming
+                              failure. The default value is 5 seconds. It is
+                              invalid for timeoutSec to have greater value
+                              than checkIntervalSec.
+        :type   timeout: ``integer``
+
+        :param  interval:  How often (in seconds) to send a health
+                                     check. The default value is 5 seconds.
+        :type   interval: ``integer``
+
+        :param  port:  The TCP port number for the HTTP health check request.
+                       The default value is 80.
+        :type   port: ``integer``
+
+        :param  healthy_threshold:  A so-far unhealthy instance will be
+                                    marked healthy after this many
+                                    consecutive successes. The default value
+                                    is 2.
+        :type   healthy_threshold: ``integer``
+
+        :param  host:  The value of the host header in the HTTP health check
+                       request. If left empty (default value), the public IP
+                       on behalf of which this health check is performed will
+                       be used.
+        :type   host: ``str``
+
+        :param  path:  The request path of the HTTP health check
+                               request. The default value is /.
+        :type   path: ``str``
+
+        :param  unhealthy_threshold:  A so-far healthy instance will be
+                                      marked unhealthy after this many
+                                      consecutive failures. The default value
+                                      is 2.
+        :type   unhealthy_threshold: ``integer``
+
+        :keyword  driver:  An initialized :class: `GCENodeDriver`
+        :type   driver: :class:`:class: `GCENodeDriver``
+
+        :keyword  extra:  A dictionary of extra information.
+        :type   extra: ``:class: ``dict````
+
+        """
+
+        self.name = name
+        self.description = description
+        self.timeout = timeout
+        self.interval = interval
+        self.port = port
+        self.healthy_threshold = healthy_threshold
+        self.host = host
+        self.path = path
+        self.unhealthy_threshold = unhealthy_threshold
+        self.driver = driver
+        self.extra = extra
+        UuidMixin.__init__(self)
+
+    def __repr__(self):
+        return '<GCEHttpHealthCheck name="%s">' % (self.name)
+
+    def update(self):
+        """
+        Commit updated HTTP healthcheck values.
+
+        :return:  Updated httpHealthcheck object
+        :rtype:   :class:`GCEHttpHealthcheck`
+        """
+        return self.driver.ex_update_httphealthcheck(httphealthcheck=self)
+
+    def destroy(self):
+        """
+        Destroy this HttpHealthCheck.
+
+        :return:  Return True if successful.
+        :rtype: ``bool``
+        """
+        return self.driver.ex_destroy_httphealthcheck(httphealthcheck=self)
 
 
 class GCEFirewall(UuidMixin):
@@ -2118,6 +2326,34 @@ class GCENodeDriver(NodeDriver):
                              for h in response.get('items', [])]
         return list_healthchecks
 
+    def ex_list_httphealthchecks(self):
+        """
+        Return the list of HTTP health checks.
+
+        :return: A list of HTTP health check objects.
+        :rtype: ``list`` of :class:`GCEHttpHealthCheck`
+        """
+        list_healthchecks = []
+        request = '/global/httpHealthChecks'
+        response = self.connection.request(request, method='GET').object
+        list_healthchecks = [self._to_httphealthcheck(h)
+                             for h in response.get('items', [])]
+        return list_healthchecks
+
+    def ex_list_httpshealthchecks(self):
+        """
+        Return the list of HTTPS health checks.
+
+        :return: A list of HTTPS health check objects.
+        :rtype: ``list`` of :class:`GCEHttpsHealthCheck`
+        """
+        list_healthchecks = []
+        request = '/global/httpsHealthChecks'
+        response = self.connection.request(request, method='GET').object
+        list_healthchecks = [self._to_httpshealthcheck(h)
+                             for h in response.get('items', [])]
+        return list_healthchecks
+
     def ex_list_firewalls(self):
         """
         Return the list of firewalls.
@@ -2396,9 +2632,8 @@ class GCENodeDriver(NodeDriver):
                     for i in v.get('instances', []):
                         try:
                             list_nodes.append(
-                                self._to_node(i,
-                                              use_disk_cache=ex_use_disk_cache)
-                            )
+                                self._to_node(
+                                    i, use_disk_cache=ex_use_disk_cache))
                         # If a GCE node has been deleted between
                         #   - is was listed by `request('.../instances', 'GET')
                         #   - it is converted by `self._to_node(i)`
@@ -2412,8 +2647,7 @@ class GCENodeDriver(NodeDriver):
                 for i in response['items']:
                     try:
                         list_nodes.append(
-                            self._to_node(i, use_disk_cache=ex_use_disk_cache)
-                        )
+                            self._to_node(i, use_disk_cache=ex_use_disk_cache))
                     # If a GCE node has been deleted between
                     #   - is was listed by `request('.../instances', 'GET')
                     #   - it is converted by `self._to_node(i)`
@@ -3034,6 +3268,126 @@ class GCENodeDriver(NodeDriver):
 
         self.connection.async_request(request, method='POST', data=hc_data)
         return self.ex_get_healthcheck(name)
+
+    def ex_create_httphealthcheck(self, name, host=None, path=None, port=None,
+                                  interval=None, timeout=None,
+                                  unhealthy_threshold=None,
+                                  healthy_threshold=None, description=None):
+        """
+        Create an HTTP Health Check.
+
+        :param  name: Name of health check
+        :type   name: ``str``
+
+        :keyword  host: Hostname of health check request.  Defaults to empty
+                        and public IP is used instead.
+        :type     host: ``str``
+
+        :keyword  path: The request path for the check.  Defaults to /.
+        :type     path: ``str``
+
+        :keyword  port: The TCP port number for the check.  Defaults to 80.
+        :type     port: ``int``
+
+        :keyword  interval: How often (in seconds) to check.  Defaults to 5.
+        :type     interval: ``int``
+
+        :keyword  timeout: How long to wait before failing. Defaults to 5.
+        :type     timeout: ``int``
+
+        :keyword  unhealthy_threshold: How many failures before marking
+                                       unhealthy.  Defaults to 2.
+        :type     unhealthy_threshold: ``int``
+
+        :keyword  healthy_threshold: How many successes before marking as
+                                     healthy.  Defaults to 2.
+        :type     healthy_threshold: ``int``
+
+        :keyword  description: The description of the check.  Defaults to None.
+        :type     description: ``str`` or ``None``
+
+        :return:  HTTP Health Check object
+        :rtype:   :class:`GCEHttpHealthCheck`
+        """
+        hc_data = {}
+        hc_data['name'] = name
+        if host:
+            hc_data['host'] = host
+        if description:
+            hc_data['description'] = description
+        # As of right now, the 'default' values aren't getting set when called
+        # through the API, so set them explicitly
+        hc_data['requestPath'] = path or '/'
+        hc_data['port'] = port or 80
+        hc_data['checkIntervalSec'] = interval or 5
+        hc_data['timeoutSec'] = timeout or 5
+        hc_data['unhealthyThreshold'] = unhealthy_threshold or 2
+        hc_data['healthyThreshold'] = healthy_threshold or 2
+
+        request = '/global/httpHealthChecks'
+
+        self.connection.async_request(request, method='POST', data=hc_data)
+        return self.ex_get_httphealthcheck(name)
+
+    def ex_create_httpshealthcheck(self, name, host=None, path=None, port=None,
+                                   interval=None, timeout=None,
+                                   unhealthy_threshold=None,
+                                   healthy_threshold=None, description=None):
+        """
+        Create an HTTPS Health Check.
+
+        :param  name: Name of health check
+        :type   name: ``str``
+
+        :keyword  host: Hostname of health check request.  Defaults to empty
+                        and public IP is used instead.
+        :type     host: ``str``
+
+        :keyword  path: The request path for the check.  Defaults to /.
+        :type     path: ``str``
+
+        :keyword  port: The TCP port number for the check.  Defaults to 80.
+        :type     port: ``int``
+
+        :keyword  interval: How often (in seconds) to check.  Defaults to 5.
+        :type     interval: ``int``
+
+        :keyword  timeout: How long to wait before failing. Defaults to 5.
+        :type     timeout: ``int``
+
+        :keyword  unhealthy_threshold: How many failures before marking
+                                       unhealthy.  Defaults to 2.
+        :type     unhealthy_threshold: ``int``
+
+        :keyword  healthy_threshold: How many successes before marking as
+                                     healthy.  Defaults to 2.
+        :type     healthy_threshold: ``int``
+
+        :keyword  description: The description of the check.  Defaults to None.
+        :type     description: ``str`` or ``None``
+
+        :return:  HTTP Health Check object
+        :rtype:   :class:`GCEHttpsHealthCheck`
+        """
+        hc_data = {}
+        hc_data['name'] = name
+        if host:
+            hc_data['host'] = host
+        if description:
+            hc_data['description'] = description
+        # As of right now, the 'default' values aren't getting set when called
+        # through the API, so set them explicitly
+        hc_data['requestPath'] = path or '/'
+        hc_data['port'] = port or 80
+        hc_data['checkIntervalSec'] = interval or 5
+        hc_data['timeoutSec'] = timeout or 5
+        hc_data['unhealthyThreshold'] = unhealthy_threshold or 2
+        hc_data['healthyThreshold'] = healthy_threshold or 2
+
+        request = '/global/httpsHealthChecks'
+
+        self.connection.async_request(request, method='POST', data=hc_data)
+        return self.ex_get_httpshealthcheck(name)
 
     def ex_create_firewall(self, name, allowed, network='default',
                            source_ranges=None, source_tags=None,
@@ -5145,6 +5499,70 @@ class GCENodeDriver(NodeDriver):
 
         return self.ex_get_healthcheck(healthcheck.name)
 
+    def ex_update_httphealthcheck(self, httphealthcheck):
+        """
+        Update a HTTP health check with new values.
+
+        To update, change the attributes of the health check object and pass
+        the updated object to the method.
+
+        :param  httphealthcheck: A healthcheck object with updated values.
+        :type   httphealthcheck: :class:`GCEHttpHealthCheck`
+
+        :return:  An object representing the new state of the health check.
+        :rtype:   :class:`GCEHttpHealthCheck`
+        """
+        hc_data = {}
+        hc_data['name'] = httphealthcheck.name
+        hc_data['requestPath'] = httphealthcheck.path
+        hc_data['port'] = httphealthcheck.port
+        hc_data['checkIntervalSec'] = httphealthcheck.interval
+        hc_data['timeoutSec'] = httphealthcheck.timeout
+        hc_data['unhealthyThreshold'] = httphealthcheck.unhealthy_threshold
+        hc_data['healthyThreshold'] = httphealthcheck.healthy_threshold
+        if httphealthcheck.extra['host']:
+            hc_data['host'] = httphealthcheck.extra['host']
+        if httphealthcheck.extra['description']:
+            hc_data['description'] = httphealthcheck.extra['description']
+
+        request = '/global/httpHealthChecks/%s' % (httphealthcheck.name)
+
+        self.connection.async_request(request, method='PUT', data=hc_data)
+
+        return self.ex_get_httphealthcheck(httphealthcheck.name)
+
+    def ex_update_httpshealthcheck(self, httpshealthcheck):
+        """
+        Update a HTTPS health check with new values.
+
+        To update, change the attributes of the health check object and pass
+        the updated object to the method.
+
+        :param  httphealthcheck: A healthcheck object with updated values.
+        :type   httphealthcheck: :class:`GCEHttpHealthCheck`
+
+        :return:  An object representing the new state of the health check.
+        :rtype:   :class:`GCEHttpsHealthCheck`
+        """
+        hc_data = {}
+        hc_data['name'] = httpshealthcheck.name
+        hc_data['requestPath'] = httpshealthcheck.path
+        hc_data['port'] = httpshealthcheck.port
+        hc_data['checkIntervalSec'] = httpshealthcheck.interval
+        hc_data['timeoutSec'] = httpshealthcheck.timeout
+        hc_data['unhealthyThreshold'] = httpshealthcheck.unhealthy_threshold
+        hc_data['healthyThreshold'] = httpshealthcheck.healthy_threshold
+        if httpshealthcheck.extra['host']:
+            hc_data['host'] = httpshealthcheck.extra['host']
+        if httpshealthcheck.extra['description']:
+            hc_data['description'] = httpshealthcheck.extra['description']
+
+        request = '/global/httpsHealthChecks/%s' % (httpshealthcheck.name)
+
+        self.connection.async_request(request, method='PUT', data=hc_data)
+
+        return self.ex_get_httpshealthcheck(httpshealthcheck.name)
+
     def ex_update_firewall(self, firewall):
         """
         Update a firewall with new values.
@@ -6183,6 +6601,34 @@ class GCENodeDriver(NodeDriver):
         self.connection.async_request(request, method='DELETE')
         return True
 
+    def ex_destroy_httphealthcheck(self, httphealthcheck):
+        """
+        Destroy a HTTP healthcheck.
+
+        :param  httphealthcheck: Health check object to destroy
+        :type   httphealthcheck: :class:`GCEHttpHealthCheck`
+
+        :return:  True if successful
+        :rtype:   ``bool``
+        """
+        request = '/global/httpHealthChecks/%s' % (httphealthcheck.name)
+        self.connection.async_request(request, method='DELETE')
+        return True
+
+    def ex_destroy_httpshealthcheck(self, httpshealthcheck):
+        """
+        Destroy a HTTPS healthcheck.
+
+        :param  httpshealthcheck: Health check object to destroy
+        :type   httpshealthcheck: :class:`GCEHttpsHealthCheck`
+
+        :return:  True if successful
+        :rtype:   ``bool``
+        """
+        request = '/global/httpsHealthChecks/%s' % (httpshealthcheck.name)
+        self.connection.async_request(request, method='DELETE')
+        return True
+
     def ex_destroy_firewall(self, firewall):
         """
         Destroy a firewall.
@@ -6681,6 +7127,34 @@ class GCENodeDriver(NodeDriver):
         request = '/global/httpHealthChecks/%s' % (name)
         response = self.connection.request(request, method='GET').object
         return self._to_healthcheck(response)
+
+    def ex_get_httphealthcheck(self, name):
+        """
+        Return a httpHealthCheck object based on the name.
+
+        :param  name: The name of the HTTP healthcheck
+        :type   name: ``str``
+
+        :return:  A GCEHttpHealthCheck object
+        :rtype:   :class:`GCEHttpHealthCheck`
+        """
+        request = '/global/httpHealthChecks/%s' % (name)
+        response = self.connection.request(request, method='GET').object
+        return self._to_httphealthcheck(response)
+
+    def ex_get_httpshealthcheck(self, name):
+        """
+        Return a httpsHealthCheck object based on the name.
+
+        :param  name: The name of the HTTPS healthcheck
+        :type   name: ``str``
+
+        :return:  A GCEHttpsHealthCheck object
+        :rtype:   :class:`GCEHttpsHealthCheck`
+        """
+        request = '/global/httpsHealthChecks/%s' % (name)
+        response = self.connection.request(request, method='GET').object
+        return self._to_httpshealthcheck(response)
 
     def ex_get_firewall(self, name):
         """
@@ -7365,9 +7839,8 @@ class GCENodeDriver(NodeDriver):
 
         volume = self._ex_volume_dict[volume_name].get(zone, None)
         if not volume:
-            raise ResourceNotFoundError(
-                'Volume \'%s\' not found for zone %s.' % (volume_name,
-                                                          zone), None, None)
+            raise ResourceNotFoundError('Volume \'%s\' not found for zone %s.'
+                                        % (volume_name, zone), None, None)
         return self._to_storage_volume(volume)
 
     def _ex_populate_volume_dict(self):
@@ -7378,13 +7851,12 @@ class GCENodeDriver(NodeDriver):
         return:  ``None``
         """
         # fill the volume dict by making an aggegatedList call to disks.
-        aggregated_items = self.connection.request_aggregated_items(
-            "disks")
+        aggregated_items = self.connection.request_aggregated_items("disks")
 
         # _ex_volume_dict is in the format of:
         # { 'disk_name' : { 'zone1': disk, 'zone2': disk, ... }}
-        self._ex_volume_dict = self._build_volume_dict(
-            aggregated_items['items'])
+        self._ex_volume_dict = self._build_volume_dict(aggregated_items[
+            'items'])
 
         return None
 
@@ -7536,8 +8008,8 @@ class GCENodeDriver(NodeDriver):
                 if image.name == partial_name:
                     return image
                 if image.name.startswith(partial_name):
-                    ts = timestamp_to_datetime(
-                        image.extra['creationTimestamp'])
+                    ts = timestamp_to_datetime(image.extra[
+                        'creationTimestamp'])
                     if not partial_match or partial_match[0] < ts:
                         partial_match = [ts, image]
 
@@ -8047,6 +8519,58 @@ class GCENodeDriver(NodeDriver):
             unhealthy_threshold=healthcheck.get('unhealthyThreshold'),
             healthy_threshold=healthcheck.get('healthyThreshold'), driver=self,
             extra=extra)
+
+    def _to_httphealthcheck(self, httphealthcheck):
+        """
+        Return the HttpHealthCheck object from the JSON-response.
+
+        :param  httphealthcheck:  Dictionary describing HttpHealthCheck
+        :type   httphealthcheck: ``dict``
+
+        :return:  Return HttpHealthCheck object.
+        :rtype: :class:`GCEHttpHealthCheck`
+        """
+        extra = {}
+        extra['selfLink'] = httphealthcheck.get('selfLink')
+        extra['creationTimestamp'] = httphealthcheck.get('creationTimestamp')
+        extra['description'] = httphealthcheck.get('description')
+        extra['host'] = httphealthcheck.get('host')
+
+        return GCEHttpHealthCheck(
+            id=httphealthcheck['id'], name=httphealthcheck['name'],
+            path=httphealthcheck.get('requestPath'),
+            port=httphealthcheck.get('port'),
+            interval=httphealthcheck.get('checkIntervalSec'),
+            timeout=httphealthcheck.get('timeoutSec'),
+            unhealthy_threshold=httphealthcheck.get('unhealthyThreshold'),
+            healthy_threshold=httphealthcheck.get('healthyThreshold'),
+            driver=self, extra=extra)
+
+    def _to_httpshealthcheck(self, httpshealthcheck):
+        """
+        Return the HttpsHealthCheck object from the JSON-response.
+
+        :param  httpshealthcheck:  Dictionary describing HttpHealthCheck
+        :type   httpshealthcheck: ``dict``
+
+        :return:  Return HttpsHealthCheck object.
+        :rtype: :class:`GCEHttpsHealthCheck`
+        """
+        extra = {}
+        extra['selfLink'] = httpshealthcheck.get('selfLink')
+        extra['creationTimestamp'] = httpshealthcheck.get('creationTimestamp')
+        extra['description'] = httpshealthcheck.get('description')
+        extra['host'] = httpshealthcheck.get('host')
+
+        return GCEHttpsHealthCheck(
+            id=httpshealthcheck['id'], name=httpshealthcheck['name'],
+            path=httpshealthcheck.get('requestPath'),
+            port=httpshealthcheck.get('port'),
+            interval=httpshealthcheck.get('checkIntervalSec'),
+            timeout=httpshealthcheck.get('timeoutSec'),
+            unhealthy_threshold=httpshealthcheck.get('unhealthyThreshold'),
+            healthy_threshold=httpshealthcheck.get('healthyThreshold'),
+            driver=self, extra=extra)
 
     def _to_firewall(self, firewall):
         """
@@ -8922,7 +9446,10 @@ class GCENodeDriver(NodeDriver):
         'compute#disk': _to_storage_volume,
         'compute#firewall': _to_firewall,
         'compute#forwardingRule': _to_forwarding_rule,
-        'compute#httpHealthCheck': _to_healthcheck,
+        #        'compute#httpHealthCheck': _to_healthcheck,
+        'compute#httpHealthCheck': _to_httphealthcheck,
+        'compute#httpsHealthCheck': _to_httpshealthcheck,
+        'compute#healthCheck': _to_healthcheck,
         'compute#image': _to_node_image,
         'compute#instance': _to_node,
         'compute#machineType': _to_node_size,
